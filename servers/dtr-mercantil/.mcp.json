@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "dtr-mercantil": {
+      "command": "E:\\Users\\aaron_dtr\\Desktop\\brain-DTR\\.venv\\Scripts\\python.exe",
+      "args": ["E:\\Users\\aaron_dtr\\Desktop\\brain-DTR\\server.py"],
+      "env": {
+        "PYTHONPATH": "E:\\Users\\aaron_dtr\\Desktop\\brain-DTR",
+        "PYTHONIOENCODING": "utf-8"
+      }
+    },
+    "poder-judicial": {
+      "command": "E:\\Users\\aaron_dtr\\Desktop\\mcp-poder-judicial\\.venv\\Scripts\\poder-judicial-mcp.exe",
+      "args": [],
+      "env": {
+        "PYTHONIOENCODING": "utf-8"
+      }
+    }
+  }
+}

@@ -6,7 +6,9 @@ actual. Ver README.md para contexto y trampas conocidas.
 
 param(
     [string]$DtrMercantilRoot = "E:\Users\aaron_dtr\Desktop\brain-DTR",
+    [string]$DtrMercantilHttpUrl = "http://10.80.152.3:8766/mcp",
     [string]$PoderJudicialRoot = "E:\Users\aaron_dtr\Desktop\mcp-poder-judicial",
+    [string]$PoderJudicialVendoredSource = (Join-Path $PSScriptRoot "servers\poder-judicial"),
     [string]$PoderJudicialZipUrl = "https://codeload.github.com/mclaramunt/PoderJudicialMCPServer/zip/refs/heads/main"
 )
 
@@ -54,20 +56,27 @@ if ($pjOk) {
         exit 1
     }
 
-    # 2a. Descargar el zip (esta máquina no tiene git).
-    $tmpZip = Join-Path $env:TEMP "poder-judicial-mcp.zip"
-    $tmpExtract = Join-Path $env:TEMP "poder-judicial-mcp-extract"
-    Write-Host "    Descargando $PoderJudicialZipUrl"
-    Invoke-WebRequest -Uri $PoderJudicialZipUrl -OutFile $tmpZip -UseBasicParsing
+    # 2a. Conseguir el código: preferir la copia vendorizada en este mismo
+    #     repo (servers\poder-judicial) y solo si no está, descargar el zip
+    #     del repo original (esta máquina no tiene git de sistema).
+    if (Test-Path (Join-Path $PoderJudicialVendoredSource "pyproject.toml")) {
+        Write-Host "    Copiando código vendorizado de $PoderJudicialVendoredSource"
+        Copy-Item $PoderJudicialVendoredSource $PoderJudicialRoot -Recurse
+    } else {
+        $tmpZip = Join-Path $env:TEMP "poder-judicial-mcp.zip"
+        $tmpExtract = Join-Path $env:TEMP "poder-judicial-mcp-extract"
+        Write-Host "    No hay copia vendorizada local; descargando $PoderJudicialZipUrl"
+        Invoke-WebRequest -Uri $PoderJudicialZipUrl -OutFile $tmpZip -UseBasicParsing
 
-    if (Test-Path $tmpExtract) { Remove-Item $tmpExtract -Recurse -Force }
-    Expand-Archive -Path $tmpZip -DestinationPath $tmpExtract -Force
+        if (Test-Path $tmpExtract) { Remove-Item $tmpExtract -Recurse -Force }
+        Expand-Archive -Path $tmpZip -DestinationPath $tmpExtract -Force
 
-    $extractedSubdir = Get-ChildItem $tmpExtract -Directory | Select-Object -First 1
-    Move-Item $extractedSubdir.FullName $PoderJudicialRoot
-    Remove-Item $tmpZip -Force
-    Remove-Item $tmpExtract -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Ok "Código descargado"
+        $extractedSubdir = Get-ChildItem $tmpExtract -Directory | Select-Object -First 1
+        Move-Item $extractedSubdir.FullName $PoderJudicialRoot
+        Remove-Item $tmpZip -Force
+        Remove-Item $tmpExtract -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    Write-Ok "Código listo en $PoderJudicialRoot"
 
     # 2b. Elegir intérprete base para el venv: el Python 3.12 portable de
     #     brain-DTR si estamos en el servidor central, si no el 'python' del
@@ -145,4 +154,12 @@ $json = $config | ConvertTo-Json -Depth 20
 [System.IO.File]::WriteAllText($configPath, $json, (New-Object System.Text.UTF8Encoding($false)))
 Write-Ok "Guardado: $configPath"
 
-Write-Step "Listo. Abre Claude Desktop y comprueba en Conectores que aparecen dtr-mercantil y poder-judicial."
+if ($dtrOk) {
+    Write-Step "Listo. Abre Claude Desktop y comprueba en Conectores que aparecen dtr-mercantil y poder-judicial."
+} else {
+    Write-Step "poder-judicial registrado. Para dtr-mercantil (PC de oficina, no servidor central):"
+    Write-Host "    Añade manualmente un conector remoto en Claude Desktop:"
+    Write-Host "    Configuración -> Conectores -> Añadir conector personalizado"
+    Write-Host "    URL: $DtrMercantilHttpUrl  (sin autenticación)"
+    Write-Host "    Nota: los enlaces 'abrir archivo'/'abrir carpeta' que devuelva no abrirán nada en este PC (limitación conocida)."
+}
