@@ -35,7 +35,7 @@ $dtrOk = (Test-Path $dtrPython) -and (Test-Path $dtrServer)
 if ($dtrOk) {
     Write-Ok "Instalación encontrada en $DtrMercantilRoot"
 } else {
-    Write-Warn2 "No se encontró $DtrMercantilRoot (python.exe o server.py). No se registrará dtr-mercantil. Esta instalación no se puede crear desde este script: depende del índice ya construido sobre K: (ver MIGRACION.md de ese proyecto)."
+    Write-Warn2 "No se encontró $DtrMercantilRoot: no se registrará dtr-mercantil. Esto es NORMAL en un PC de oficina (dtr-mercantil solo vive en el servidor central, atado al índice ya construido sobre K: — no es instalable aquí). Si esta máquina DEBERÍA ser el servidor central y el aviso te sorprende, revisa la ruta con -DtrMercantilRoot o consulta MIGRACION.md de ese proyecto."
 }
 
 # --- 2. poder-judicial: instalar desde cero si no existe. ---
@@ -69,12 +69,18 @@ if ($pjOk) {
     Remove-Item $tmpExtract -Recurse -Force -ErrorAction SilentlyContinue
     Write-Ok "Código descargado"
 
-    # 2b. Venv con el Python 3.12 portable de brain-DTR (sin depender de un
-    #     Python de sistema, que no hay garantía de que exista aquí).
+    # 2b. Elegir intérprete base para el venv: el Python 3.12 portable de
+    #     brain-DTR si estamos en el servidor central, si no el 'python' del
+    #     PATH (caso normal en un PC de oficina con Python ya instalado).
     $portablePython = Join-Path $DtrMercantilRoot "tools\python312\python.exe"
-    $baseInterpreter = if (Test-Path $portablePython) { $portablePython } else {
-        Write-Warn2 "No se encontró el Python portable de brain-DTR; probando 'python' del PATH"
-        "python"
+    $systemPython = Get-Command python -ErrorAction SilentlyContinue
+    if (Test-Path $portablePython) {
+        $baseInterpreter = $portablePython
+    } elseif ($systemPython) {
+        $baseInterpreter = $systemPython.Source
+    } else {
+        Write-Warn2 "No hay Python disponible (ni el portable de brain-DTR ni 'python' en el PATH). Instala Python 3.12+ en este equipo y vuelve a ejecutar el script."
+        exit 1
     }
 
     Write-Host "    Creando venv con $baseInterpreter"

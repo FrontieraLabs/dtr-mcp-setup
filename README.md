@@ -61,7 +61,36 @@ está abierta y avisa.
    El MCP arranca y expone sus tools igualmente; `search` solo funcionará
    desde la red de la oficina o un equipo normal.
 
+## Varios ordenadores (PCs de oficina, no solo el servidor central)
+
+Este repo sirve para dos escenarios distintos:
+
+1. **Nueva cuenta de Windows en el servidor central** (donde ya corren K:, el
+   índice y `brain-DTR`): `setup.ps1` registra los dos conectores sin instalar
+   nada nuevo.
+2. **PC físico distinto en la oficina**: aunque la unidad K: esté montada
+   igual en todos los equipos, el *índice* de dtr-mercantil (2 GB de SQLite
+   construido por la sincronización diaria de las 06:00) solo vive en el
+   servidor central — no tiene sentido ni está soportado reconstruirlo en
+   cada PC. En estos equipos `setup.ps1` detecta que `brain-DTR` no existe,
+   **omite dtr-mercantil sin error** y solo instala y registra
+   `poder-judicial` (que no depende de nada local y es igual de válido en
+   cualquier máquina; de hecho, al tener IP de oficina en vez de IP de
+   datacenter, es probable que aquí el buscador del CENDOJ sí funcione).
+
+Hacer que un PC de oficina también pueda usar dtr-mercantil requeriría
+exponerlo en red desde el servidor central (en vez de un proceso local por
+stdio) — es un cambio de arquitectura aparte, con una implicación de
+seguridad/RGPD ya anotada como pendiente en `CLAUDE.md` del proyecto
+(`dtr-mercantil` no distingue usuarios y expone todo K:). No está hecho aquí.
+
+La tarea de Cowork "Alta de usuario: conectores MCP" que acompaña a este
+repo vive solo en la cuenta/máquina donde se creó — no se replica sola a
+otros PCs. Para un PC de oficina, el flujo es simplemente clonar este repo
+y ejecutar `setup.ps1` desde una terminal normal, sin pasar por Cowork.
+
 ## Pendiente (siguiente paso, fuera de este repo)
 
-Envolver `setup.ps1` en una tarea de Cowork ejecutable, para que un alta de
-usuario nueva no tenga que abrir una terminal a mano.
+Decidir si merece la pena exponer dtr-mercantil en red para los PCs de
+oficina, y si es así, resolver también que los enlaces `http://localhost:8765/abrir`
+de `estado_server.py` asumen que cliente y servidor son la misma máquina.
