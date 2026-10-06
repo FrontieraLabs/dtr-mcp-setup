@@ -1,15 +1,33 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
-Registra los conectores MCP dtr-mercantil y poder-judicial para el usuario
-actual. Ver README.md para contexto y trampas conocidas.
+Registra los conectores MCP dtr-mercantil, poder-judicial y kabiku para el
+usuario actual. Ver README.md para contexto y trampas conocidas. Para
+kabiku, pasa KABIKU_USERNAME/KABIKU_PASSWORD como variables de entorno antes
+de ejecutar (o como -KabikuUsername/-KabikuPassword) — si faltan, se instala
+pero no se registra.
 #>
 
 param(
+    # Fijo a propósito: dtr-mercantil es UNA instalación compartida que solo
+    # existe en el servidor central (esta ruta exacta), nunca portable — en
+    # cualquier otro PC simplemente no se encontrará, y eso es correcto.
     [string]$DtrMercantilRoot = "E:\Users\aaron_dtr\Desktop\brain-DTR",
     [string]$DtrMercantilHttpUrl = "http://10.80.152.3:8766/mcp",
-    [string]$PoderJudicialRoot = "E:\Users\aaron_dtr\Desktop\mcp-poder-judicial",
+    # poder-judicial y kabiku sí se instalan por máquina: la ruta por
+    # defecto usa el perfil del usuario que ejecuta el script, sea cual sea
+    # la unidad/nombre de cuenta (en este servidor ya coincide con
+    # E:\Users\aaron_dtr, porque aquí el perfil de aaron_dtr vive en E:).
+    [string]$PoderJudicialRoot = (Join-Path $env:USERPROFILE "Desktop\mcp-poder-judicial"),
     [string]$PoderJudicialVendoredSource = (Join-Path $PSScriptRoot "servers\poder-judicial"),
-    [string]$PoderJudicialZipUrl = "https://codeload.github.com/mclaramunt/PoderJudicialMCPServer/zip/refs/heads/main"
+    [string]$PoderJudicialZipUrl = "https://codeload.github.com/mclaramunt/PoderJudicialMCPServer/zip/refs/heads/main",
+    [string]$KabikuRoot = (Join-Path $env:USERPROFILE "Desktop\mcp-kabiku"),
+    [string]$KabikuVendoredSource = (Join-Path $PSScriptRoot "servers\kabiku"),
+    # Credenciales de Kabiku: nunca hardcodeadas aqui. Se toman de variables
+    # de entorno (o se pasan como parametro al ejecutar el script), y si
+    # faltan simplemente no se registra el conector — no se escribe ningun
+    # valor de ejemplo en claude_desktop_config.json.
+    [string]$KabikuUsername = $env:KABIKU_USERNAME,
+    [string]$KabikuPassword = $env:KABIKU_PASSWORD
 )
 
 $ErrorActionPreference = "Stop"
@@ -37,7 +55,7 @@ $dtrOk = (Test-Path $dtrPython) -and (Test-Path $dtrServer)
 if ($dtrOk) {
     Write-Ok "Instalación encontrada en $DtrMercantilRoot"
 } else {
-    Write-Warn2 "No se encontró $DtrMercantilRoot: no se registrará dtr-mercantil. Esto es NORMAL en un PC de oficina (dtr-mercantil solo vive en el servidor central, atado al índice ya construido sobre K: — no es instalable aquí). Si esta máquina DEBERÍA ser el servidor central y el aviso te sorprende, revisa la ruta con -DtrMercantilRoot o consulta MIGRACION.md de ese proyecto."
+    Write-Warn2 "No se encontró ${DtrMercantilRoot}: no se registrará dtr-mercantil. Esto es NORMAL en un PC de oficina (dtr-mercantil solo vive en el servidor central, atado al índice ya construido sobre K: — no es instalable aquí). Si esta máquina DEBERÍA ser el servidor central y el aviso te sorprende, revisa la ruta con -DtrMercantilRoot o consulta MIGRACION.md de ese proyecto."
 }
 
 # --- 2. poder-judicial: instalar desde cero si no existe. ---
@@ -110,7 +128,55 @@ if ($pjOk) {
     Write-Ok "poder-judicial instalado y verificado en $PoderJudicialRoot"
 }
 
-# --- 3. Registrar en claude_desktop_config.json del usuario actual. ---
+# --- 3. kabiku: instalar desde cero si no existe (incluye el navegador de
+#        Playwright, no solo el paquete pip). ---
+Write-Step "Verificando kabiku"
+$kbPython = Join-Path $KabikuRoot ".venv\Scripts\python.exe"
+$kbExe = Join-Path $KabikuRoot ".venv\Scripts\kabiku-mcp.exe"
+$kbOk = (Test-Path $kbPython) -and (Test-Path $kbExe)
+
+if ($kbOk) {
+    Write-Ok "Instalación encontrada en $KabikuRoot"
+} else {
+    Write-Step "kabiku no está instalado: instalando en $KabikuRoot"
+
+    if (Test-Path $KabikuRoot) {
+        Write-Warn2 "La carpeta $KabikuRoot existe pero está incompleta. Revisa manualmente antes de continuar."
+        exit 1
+    }
+    if (-not (Test-Path (Join-Path $KabikuVendoredSource "pyproject.toml"))) {
+        Write-Warn2 "No hay copia vendorizada de kabiku en $KabikuVendoredSource (y no tiene repo público propio). No se puede instalar aquí."
+    } else {
+        Copy-Item $KabikuVendoredSource $KabikuRoot -Recurse
+        Write-Ok "Código copiado en $KabikuRoot"
+
+        $portablePython = Join-Path $DtrMercantilRoot "tools\python312\python.exe"
+        $systemPython = Get-Command python -ErrorAction SilentlyContinue
+        if (Test-Path $portablePython) {
+            $baseInterpreter = $portablePython
+        } elseif ($systemPython) {
+            $baseInterpreter = $systemPython.Source
+        } else {
+            Write-Warn2 "No hay Python disponible. Instala Python 3.12+ y vuelve a ejecutar el script."
+            exit 1
+        }
+
+        Write-Host "    Creando venv con $baseInterpreter"
+        & $baseInterpreter -m venv (Join-Path $KabikuRoot ".venv")
+        & $kbPython -m pip install --upgrade pip | Out-Null
+        & $kbPython -m pip install $KabikuRoot
+        Write-Host "    Descargando navegador de Playwright (Chromium, ~200 MB)..."
+        & (Join-Path $KabikuRoot ".venv\Scripts\playwright.exe") install chromium
+        Write-Ok "kabiku instalado en $KabikuRoot"
+        $kbOk = (Test-Path $kbPython) -and (Test-Path $kbExe)
+    }
+}
+
+if ($kbOk -and (-not $KabikuUsername -or -not $KabikuPassword)) {
+    Write-Warn2 "kabiku está instalado pero no hay KABIKU_USERNAME/KABIKU_PASSWORD (ni en el entorno ni como parámetro): no se registrará el conector. Vuelve a ejecutar con esas variables puestas, o añade tú mismo las credenciales despues en claude_desktop_config.json."
+}
+
+# --- 4. Registrar en claude_desktop_config.json del usuario actual. ---
 Write-Step "Registrando conectores en claude_desktop_config.json"
 $configDir = Join-Path $env:APPDATA "Claude"
 $configPath = Join-Path $configDir "claude_desktop_config.json"
@@ -150,16 +216,33 @@ $config.mcpServers | Add-Member -MemberType NoteProperty -Name "poder-judicial" 
 })
 Write-Ok "poder-judicial registrado"
 
+if ($kbOk -and $KabikuUsername -and $KabikuPassword) {
+    $config.mcpServers | Add-Member -MemberType NoteProperty -Name "kabiku" -Force -Value ([PSCustomObject]@{
+        command = $kbExe
+        args    = @()
+        env     = [PSCustomObject]@{
+            KABIKU_USERNAME = $KabikuUsername
+            KABIKU_PASSWORD = $KabikuPassword
+        }
+    })
+    Write-Ok "kabiku registrado"
+}
+
 $json = $config | ConvertTo-Json -Depth 20
 [System.IO.File]::WriteAllText($configPath, $json, (New-Object System.Text.UTF8Encoding($false)))
 Write-Ok "Guardado: $configPath"
 
 if ($dtrOk) {
-    Write-Step "Listo. Abre Claude Desktop y comprueba en Conectores que aparecen dtr-mercantil y poder-judicial."
+    Write-Step "Listo. Abre Claude Desktop y comprueba en Conectores que aparecen dtr-mercantil, poder-judicial$(if ($kbOk -and $KabikuUsername -and $KabikuPassword) { ' y kabiku' })."
 } else {
-    Write-Step "poder-judicial registrado. Para dtr-mercantil (PC de oficina, no servidor central):"
+    Write-Step "poder-judicial$(if ($kbOk -and $KabikuUsername -and $KabikuPassword) { ' y kabiku' }) registrado(s). Para dtr-mercantil (PC de oficina, no servidor central):"
     Write-Host "    Añade manualmente un conector remoto en Claude Desktop:"
     Write-Host "    Configuración -> Conectores -> Añadir conector personalizado"
     Write-Host "    URL: $DtrMercantilHttpUrl  (sin autenticación)"
     Write-Host "    Nota: los enlaces 'abrir archivo'/'abrir carpeta' que devuelva no abrirán nada en este PC (limitación conocida)."
+}
+if ($kbOk -and (-not $KabikuUsername -or -not $KabikuPassword)) {
+    Write-Host ""
+    Write-Host "    kabiku instalado pero SIN registrar (faltan credenciales). Añádelas tú mismo en claude_desktop_config.json:" -ForegroundColor Yellow
+    Write-Host "    `"kabiku`": { `"command`": `"$kbExe`", `"args`": [], `"env`": { `"KABIKU_USERNAME`": `"...`", `"KABIKU_PASSWORD`": `"...`" } }"
 }

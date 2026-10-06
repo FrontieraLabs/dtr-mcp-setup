@@ -1,17 +1,24 @@
 # dtr-mcp-setup
 
-Código y setup de los dos conectores MCP del despacho DTR: `dtr-mercantil`
-(cerebro documental interno) y `poder-judicial` (jurisprudencia CENDOJ,
+Código y setup de los tres conectores MCP del despacho DTR: `dtr-mercantil`
+(cerebro documental interno), `poder-judicial` (jurisprudencia CENDOJ,
 [mclaramunt/PoderJudicialMCPServer](https://github.com/mclaramunt/PoderJudicialMCPServer),
-MIT). El código vive vendorizado en `servers/` — sobre todo para que
-`dtr-mercantil` tenga por fin una copia de seguridad con historial (antes no
-estaba en ningún repo).
+MIT) y `kabiku` (facturación, vía Playwright). El código vive vendorizado en
+`servers/` — sobre todo para que `dtr-mercantil` tenga por fin una copia de
+seguridad con historial (antes no estaba en ningún repo).
+
+`poder-judicial` y `kabiku` se instalan **por máquina**: `setup.ps1` usa por
+defecto `$env:USERPROFILE\Desktop\...`, así que funciona igual en el servidor
+central que en cualquier PC de oficina, con cualquier cuenta de Windows.
+`dtr-mercantil` es la excepción: su ruta está fijada a propósito al servidor
+central (ver "PCs de oficina" más abajo) y nunca se instala en otra máquina.
 
 ```
 servers/
   dtr-mercantil/    código de brain-DTR (sin .venv ni tools/, que son
                      entorno local de ese servidor, no código)
   poder-judicial/   código del MCP de CENDOJ (sin .venv)
+  kabiku/           código del MCP de facturación (sin .venv)
 setup.ps1           registra los conectores para un usuario/PC nuevo
 ```
 
