@@ -492,8 +492,21 @@ if __name__ == "__main__":
         # Instancia de red para PCs de oficina (Claude Desktop normal, sin
         # Citrix): ver E:\Users\aaron_dtr\Desktop\brain-DTR\start_mcp_http.bat
         # y el README de dtr-mcp-setup para el contexto completo.
+        # HTTPS obligatorio (los conectores remotos de Claude Desktop no
+        # aceptan HTTP plano): certificado autofirmado generado por
+        # tools\gen_cert.py en certs\, instalado como de confianza por
+        # setup.ps1 en cada PC que lo use.
+        import uvicorn
+
         host = os.environ.get("DTR_HTTP_HOST", "0.0.0.0")
         port = int(os.environ.get("DTR_HTTP_PORT", "8766"))
-        mcp.run(transport="streamable-http", host=host, port=port)
+        certs_dir = os.path.join(os.path.dirname(__file__), "certs")
+        keyfile = os.path.join(certs_dir, "dtr-mercantil.key")
+        certfile = os.path.join(certs_dir, "dtr-mercantil.crt")
+
+        app = mcp.streamable_http_app(host=host)
+        config = uvicorn.Config(app, host=host, port=port,
+                                ssl_keyfile=keyfile, ssl_certfile=certfile)
+        uvicorn.Server(config).run()
     else:
         mcp.run(transport="stdio")

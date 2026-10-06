@@ -22,7 +22,7 @@ servers/
 setup.ps1           registra los conectores para un usuario/PC nuevo
 ```
 
-## Los dos conectores
+## Los tres conectores
 
 1. **dtr-mercantil** — cerebro documental (K:, 1.033 expedientes, 148k docs).
    Solo tiene sentido ejecutarlo en el servidor central, atado al índice SQLite
@@ -30,14 +30,24 @@ setup.ps1           registra los conectores para un usuario/PC nuevo
    instala, solo verifica si ya existe en `E:\Users\aaron_dtr\Desktop\brain-DTR`
    y registra el comando si es así.
    Desde 2026-10-04 también corre en modo red (`server.py --http`,
-   streamable-http en `http://10.80.152.3:8766/mcp`) para que PCs de oficina
+   streamable-http en `https://10.80.152.3:8766/mcp`) para que PCs de oficina
    sin Citrix lo usen como conector remoto desde su Claude Desktop normal
-   (ver "PCs de oficina" abajo). Sin autenticación — decisión explícita del
-   despacho.
+   (ver "PCs de oficina" abajo). **HTTPS obligatorio** (los conectores remotos
+   de Claude Desktop no aceptan HTTP plano) con un certificado autofirmado
+   (`servers/dtr-mercantil/certs/dtr-mercantil.cer`, solo la parte pública —
+   la clave privada nunca sale del servidor central); `setup.ps1` lo instala
+   como "de confianza" automáticamente en cada PC donde se ejecute, para que
+   el usuario no tenga que hacer nada manual. Sin autenticación de usuario —
+   decisión explícita del despacho.
 2. **poder-judicial** — no depende de nada local; `setup.ps1` lo instala en
    cualquier máquina si no existe ya, usando la copia vendorizada de
    `servers/poder-judicial` (sin red) o, si no la encuentra, descargando el
    zip del repo original.
+3. **kabiku** — facturación (Kabiku), vía Playwright porque no tiene API
+   pública. Se instala en cualquier máquina igual que `poder-judicial`.
+   Necesita `KABIKU_USERNAME`/`KABIKU_PASSWORD` por variable de entorno (ver
+   `servers/kabiku/README.md`) — si faltan, se instala pero no se registra el
+   conector.
 
 ## Uso (servidor central o cualquier PC)
 

@@ -12,7 +12,8 @@ param(
     # existe en el servidor central (esta ruta exacta), nunca portable — en
     # cualquier otro PC simplemente no se encontrará, y eso es correcto.
     [string]$DtrMercantilRoot = "E:\Users\aaron_dtr\Desktop\brain-DTR",
-    [string]$DtrMercantilHttpUrl = "http://10.80.152.3:8766/mcp",
+    [string]$DtrMercantilHttpUrl = "https://10.80.152.3:8766/mcp",
+    [string]$DtrMercantilCert = (Join-Path $PSScriptRoot "servers\dtr-mercantil\certs\dtr-mercantil.cer"),
     # poder-judicial y kabiku sí se instalan por máquina: la ruta por
     # defecto usa el perfil del usuario que ejecuta el script, sea cual sea
     # la unidad/nombre de cuenta (en este servidor ya coincide con
@@ -56,6 +57,25 @@ if ($dtrOk) {
     Write-Ok "Instalación encontrada en $DtrMercantilRoot"
 } else {
     Write-Warn2 "No se encontró ${DtrMercantilRoot}: no se registrará dtr-mercantil. Esto es NORMAL en un PC de oficina (dtr-mercantil solo vive en el servidor central, atado al índice ya construido sobre K: — no es instalable aquí). Si esta máquina DEBERÍA ser el servidor central y el aviso te sorprende, revisa la ruta con -DtrMercantilRoot o consulta MIGRACION.md de ese proyecto."
+
+    # En un PC de oficina, dtr-mercantil solo se usa como conector remoto
+    # (HTTPS). El servidor central usa un certificado autofirmado: hay que
+    # instalarlo como de confianza aquí (sin esto, el conector remoto dará
+    # error de certificado aunque la URL sea correcta).
+    if (Test-Path $DtrMercantilCert) {
+        Write-Step "Instalando certificado de dtr-mercantil como de confianza"
+        $yaInstalado = Get-ChildItem Cert:\CurrentUser\Root | Where-Object {
+            $_.Subject -eq "CN=dtr-mercantil.bufetedtr.local"
+        }
+        if ($yaInstalado) {
+            Write-Ok "Ya estaba instalado"
+        } else {
+            Import-Certificate -FilePath $DtrMercantilCert -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
+            Write-Ok "Certificado instalado en Cert:\CurrentUser\Root"
+        }
+    } else {
+        Write-Warn2 "No se encontró el certificado ($DtrMercantilCert) para instalar de confianza. El conector remoto de dtr-mercantil dará error de certificado hasta que se instale a mano."
+    }
 }
 
 # --- 2. poder-judicial: instalar desde cero si no existe. ---
