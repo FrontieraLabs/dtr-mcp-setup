@@ -12,8 +12,13 @@ param(
     # existe en el servidor central (esta ruta exacta), nunca portable — en
     # cualquier otro PC simplemente no se encontrará, y eso es correcto.
     [string]$DtrMercantilRoot = "E:\Users\aaron_dtr\Desktop\brain-DTR",
-    [string]$DtrMercantilHttpUrl = "https://10.80.152.3:8766/mcp",
-    [string]$DtrMercantilCert = (Join-Path $PSScriptRoot "servers\dtr-mercantil\certs\dtr-mercantil.cer"),
+    # En un PC de oficina (sin instalación local), dtr-mercantil se usa via
+    # un proxy MCP local (stdio) que habla HTTPS con el servidor central por
+    # la red del propio PC. NO es un "conector remoto por URL" de Claude
+    # Desktop: esos los conecta la nube de Anthropic, que no alcanza IPs
+    # privadas como la de este servidor (lo comprobamos — ver README).
+    [string]$DtrMercantilRemotoRoot = (Join-Path $env:USERPROFILE "Desktop\mcp-dtr-mercantil-remoto"),
+    [string]$DtrMercantilRemotoVendoredSource = (Join-Path $PSScriptRoot "servers\dtr-mercantil-remoto"),
     # poder-judicial y kabiku sí se instalan por máquina: la ruta por
     # defecto usa el perfil del usuario que ejecuta el script, sea cual sea
     # la unidad/nombre de cuenta (en este servidor ya coincide con
@@ -56,25 +61,46 @@ $dtrOk = (Test-Path $dtrPython) -and (Test-Path $dtrServer)
 if ($dtrOk) {
     Write-Ok "Instalación encontrada en $DtrMercantilRoot"
 } else {
-    Write-Warn2 "No se encontró ${DtrMercantilRoot}: no se registrará dtr-mercantil. Esto es NORMAL en un PC de oficina (dtr-mercantil solo vive en el servidor central, atado al índice ya construido sobre K: — no es instalable aquí). Si esta máquina DEBERÍA ser el servidor central y el aviso te sorprende, revisa la ruta con -DtrMercantilRoot o consulta MIGRACION.md de ese proyecto."
+    Write-Warn2 "No se encontró ${DtrMercantilRoot}: no se registrará dtr-mercantil local. Esto es NORMAL en un PC de oficina (dtr-mercantil solo vive en el servidor central, atado al índice ya construido sobre K: — no es instalable aquí). Si esta máquina DEBERÍA ser el servidor central y el aviso te sorprende, revisa la ruta con -DtrMercantilRoot o consulta MIGRACION.md de ese proyecto."
 
-    # En un PC de oficina, dtr-mercantil solo se usa como conector remoto
-    # (HTTPS). El servidor central usa un certificado autofirmado: hay que
-    # instalarlo como de confianza aquí (sin esto, el conector remoto dará
-    # error de certificado aunque la URL sea correcta).
-    if (Test-Path $DtrMercantilCert) {
-        Write-Step "Instalando certificado de dtr-mercantil como de confianza"
-        $yaInstalado = Get-ChildItem Cert:\CurrentUser\Root | Where-Object {
-            $_.Subject -eq "CN=dtr-mercantil.bufetedtr.local"
-        }
-        if ($yaInstalado) {
-            Write-Ok "Ya estaba instalado"
-        } else {
-            Import-Certificate -FilePath $DtrMercantilCert -CertStoreLocation Cert:\CurrentUser\Root | Out-Null
-            Write-Ok "Certificado instalado en Cert:\CurrentUser\Root"
-        }
+    # En un PC de oficina: instalar el proxy local (stdio) que habla HTTPS
+    # con el servidor central. El certificado de confianza va incrustado en
+    # el propio proxy — no hace falta tocar el almacén de certificados de
+    # Windows.
+    Write-Step "Verificando dtr-mercantil-remoto (proxy para PC de oficina)"
+    $dmrPython = Join-Path $DtrMercantilRemotoRoot ".venv\Scripts\python.exe"
+    $dmrExe = Join-Path $DtrMercantilRemotoRoot ".venv\Scripts\dtr-mercantil-remoto.exe"
+    $dmrOk = (Test-Path $dmrPython) -and (Test-Path $dmrExe)
+
+    if ($dmrOk) {
+        Write-Ok "Instalación encontrada en $DtrMercantilRemotoRoot"
+    } elseif (-not (Test-Path (Join-Path $DtrMercantilRemotoVendoredSource "pyproject.toml"))) {
+        Write-Warn2 "No hay copia vendorizada de dtr-mercantil-remoto en $DtrMercantilRemotoVendoredSource. No se puede instalar."
     } else {
-        Write-Warn2 "No se encontró el certificado ($DtrMercantilCert) para instalar de confianza. El conector remoto de dtr-mercantil dará error de certificado hasta que se instale a mano."
+        if (Test-Path $DtrMercantilRemotoRoot) {
+            Write-Warn2 "La carpeta $DtrMercantilRemotoRoot existe pero está incompleta. Revisa manualmente antes de continuar."
+            exit 1
+        }
+        Copy-Item $DtrMercantilRemotoVendoredSource $DtrMercantilRemotoRoot -Recurse
+        Write-Ok "Código copiado en $DtrMercantilRemotoRoot"
+
+        $portablePython = Join-Path $DtrMercantilRoot "tools\python312\python.exe"
+        $systemPython = Get-Command python -ErrorAction SilentlyContinue
+        if (Test-Path $portablePython) {
+            $baseInterpreter = $portablePython
+        } elseif ($systemPython) {
+            $baseInterpreter = $systemPython.Source
+        } else {
+            Write-Warn2 "No hay Python disponible. Instala Python 3.12+ y vuelve a ejecutar el script."
+            exit 1
+        }
+
+        Write-Host "    Creando venv con $baseInterpreter"
+        & $baseInterpreter -m venv (Join-Path $DtrMercantilRemotoRoot ".venv")
+        & $dmrPython -m pip install --upgrade pip | Out-Null
+        & $dmrPython -m pip install $DtrMercantilRemotoRoot
+        Write-Ok "dtr-mercantil-remoto instalado en $DtrMercantilRemotoRoot"
+        $dmrOk = (Test-Path $dmrPython) -and (Test-Path $dmrExe)
     }
 }
 
@@ -224,7 +250,13 @@ if ($dtrOk) {
             PYTHONIOENCODING = "utf-8"
         }
     })
-    Write-Ok "dtr-mercantil registrado"
+    Write-Ok "dtr-mercantil registrado (local)"
+} elseif ($dmrOk) {
+    $config.mcpServers | Add-Member -MemberType NoteProperty -Name "dtr-mercantil" -Force -Value ([PSCustomObject]@{
+        command = $dmrExe
+        args    = @()
+    })
+    Write-Ok "dtr-mercantil registrado (proxy a servidor central)"
 }
 
 $config.mcpServers | Add-Member -MemberType NoteProperty -Name "poder-judicial" -Force -Value ([PSCustomObject]@{
@@ -252,14 +284,9 @@ $json = $config | ConvertTo-Json -Depth 20
 [System.IO.File]::WriteAllText($configPath, $json, (New-Object System.Text.UTF8Encoding($false)))
 Write-Ok "Guardado: $configPath"
 
-if ($dtrOk) {
-    Write-Step "Listo. Abre Claude Desktop y comprueba en Conectores que aparecen dtr-mercantil, poder-judicial$(if ($kbOk -and $KabikuUsername -and $KabikuPassword) { ' y kabiku' })."
-} else {
-    Write-Step "poder-judicial$(if ($kbOk -and $KabikuUsername -and $KabikuPassword) { ' y kabiku' }) registrado(s). Para dtr-mercantil (PC de oficina, no servidor central):"
-    Write-Host "    Añade manualmente un conector remoto en Claude Desktop:"
-    Write-Host "    Configuración -> Conectores -> Añadir conector personalizado"
-    Write-Host "    URL: $DtrMercantilHttpUrl  (sin autenticación)"
-    Write-Host "    Nota: los enlaces 'abrir archivo'/'abrir carpeta' que devuelva no abrirán nada en este PC (limitación conocida)."
+Write-Step "Listo. Abre Claude Desktop y comprueba en Conectores que aparecen dtr-mercantil, poder-judicial$(if ($kbOk -and $KabikuUsername -and $KabikuPassword) { ' y kabiku' })."
+if ($dmrOk -and -not $dtrOk) {
+    Write-Host "    Nota: dtr-mercantil funciona aquí como proxy al servidor central (requiere que este PC tenga red hasta 10.80.152.3:8766). Los enlaces 'abrir archivo'/'abrir carpeta' que devuelva no abrirán nada en este PC (limitación conocida)."
 }
 if ($kbOk -and (-not $KabikuUsername -or -not $KabikuPassword)) {
     Write-Host ""

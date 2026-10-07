@@ -15,14 +15,16 @@ central (ver "PCs de oficina" más abajo) y nunca se instala en otra máquina.
 
 ```
 servers/
-  dtr-mercantil/    código de brain-DTR (sin .venv ni tools/, que son
-                     entorno local de ese servidor, no código)
-  poder-judicial/   código del MCP de CENDOJ (sin .venv)
-  kabiku/           código del MCP de facturación (sin .venv)
-setup.ps1           registra los conectores para un usuario/PC nuevo
+  dtr-mercantil/          código de brain-DTR (sin .venv ni tools/, que son
+                           entorno local de ese servidor, no código)
+  dtr-mercantil-remoto/   proxy MCP local (stdio) que habla HTTPS con el
+                           servidor central, para PCs de oficina
+  poder-judicial/         código del MCP de CENDOJ (sin .venv)
+  kabiku/                 código del MCP de facturación (sin .venv)
+setup.ps1                 registra los conectores para un usuario/PC nuevo
 ```
 
-## Los tres conectores
+## Los cuatro componentes
 
 1. **dtr-mercantil** — cerebro documental (K:, 1.033 expedientes, 148k docs).
    Solo tiene sentido ejecutarlo en el servidor central, atado al índice SQLite
@@ -30,20 +32,24 @@ setup.ps1           registra los conectores para un usuario/PC nuevo
    instala, solo verifica si ya existe en `E:\Users\aaron_dtr\Desktop\brain-DTR`
    y registra el comando si es así.
    Desde 2026-10-04 también corre en modo red (`server.py --http`,
-   streamable-http en `https://10.80.152.3:8766/mcp`) para que PCs de oficina
-   sin Citrix lo usen como conector remoto desde su Claude Desktop normal
-   (ver "PCs de oficina" abajo). **HTTPS obligatorio** (los conectores remotos
-   de Claude Desktop no aceptan HTTP plano) con un certificado autofirmado
-   (`servers/dtr-mercantil/certs/dtr-mercantil.cer`, solo la parte pública —
-   la clave privada nunca sale del servidor central); `setup.ps1` lo instala
-   como "de confianza" automáticamente en cada PC donde se ejecute, para que
-   el usuario no tenga que hacer nada manual. Sin autenticación de usuario —
-   decisión explícita del despacho.
-2. **poder-judicial** — no depende de nada local; `setup.ps1` lo instala en
+   streamable-http por HTTPS en `0.0.0.0:8766`, certificado autofirmado en
+   `certs/`, solo la parte pública vendorizada — la clave privada nunca sale
+   del servidor central). Sin autenticación de usuario — decisión explícita
+   del despacho.
+2. **dtr-mercantil-remoto** — el componente que de verdad usan los PCs de
+   oficina para hablar con dtr-mercantil. **No es** un "conector remoto por
+   URL" de Claude Desktop — probamos eso y no funciona, ver "Trampas
+   conocidas" — es un MCP local normal (stdio, como los otros) cuyas tools
+   simplemente reenvían cada llamada por HTTPS a `https://10.80.152.3:8766/mcp`
+   usando la red del propio PC. El certificado de confianza va incrustado en
+   el código (no hace falta tocar el almacén de certificados de Windows).
+   Limitación conocida: los enlaces "abrir archivo"/"abrir carpeta" abren el
+   fichero en el servidor central, no en la pantalla del usuario.
+3. **poder-judicial** — no depende de nada local; `setup.ps1` lo instala en
    cualquier máquina si no existe ya, usando la copia vendorizada de
    `servers/poder-judicial` (sin red) o, si no la encuentra, descargando el
    zip del repo original.
-3. **kabiku** — facturación (Kabiku), vía Playwright porque no tiene API
+4. **kabiku** — facturación (Kabiku), vía Playwright porque no tiene API
    pública. Se instala en cualquier máquina igual que `poder-judicial`.
    Necesita `KABIKU_USERNAME`/`KABIKU_PASSWORD` por variable de entorno (ver
    `servers/kabiku/README.md`) — si faltan, se instala pero no se registra el
@@ -73,17 +79,17 @@ un PC de oficina) y entonces:
 - instala y registra `poder-judicial` localmente, como en cualquier máquina;
 - **no** intenta registrar `dtr-mercantil` por comando local (no tiene
   sentido: el índice no vive ahí);
-- imprime instrucciones para añadir `dtr-mercantil` como **conector remoto**:
-  Configuración → Conectores → Añadir conector personalizado, URL
-  `http://10.80.152.3:8766/mcp`.
+- instala y registra `dtr-mercantil-remoto` (el proxy local que habla HTTPS
+  con el servidor central) bajo el nombre `dtr-mercantil` en
+  `claude_desktop_config.json` — para Claude Desktop es indistinguible de
+  tener dtr-mercantil local.
 
-Limitación conocida: los enlaces "abrir archivo"/"abrir carpeta" que devuelve
-`dtr-mercantil` no funcionan para estos usuarios remotos (se abrirían en el
-servidor, no en su pantalla). La búsqueda y lectura de texto de documentos sí
-funciona bien. Si el conector remoto no responde, lo más probable es que el
-proceso `--http` del servidor central no esté levantado — depende de que
-alguien haya copiado `servers/dtr-mercantil/start_mcp_http.bat` a la carpeta
-Inicio de ese servidor (quedó pendiente, ver más abajo).
+Para que esto funcione, el PC de oficina necesita alcanzar
+`10.80.152.3:8766` por su propia red (la de la oficina, no internet). Si no
+responde, lo más probable es que el proceso `--http` del servidor central no
+esté levantado — depende de que alguien haya copiado
+`servers/dtr-mercantil/start_mcp_http.bat` a la carpeta Inicio de ese
+servidor (quedó pendiente, ver más abajo).
 
 La tarea de Cowork "Alta de usuario: conectores MCP" que acompaña a este repo
 vive solo en la cuenta/máquina donde se creó — no se replica sola a otros
@@ -113,6 +119,20 @@ PCs. Para un PC de oficina, el flujo es clonar este repo y ejecutar
    conector, local o remoto. Ya estaba anotado como pendiente de RGPD/murallas
    chinas antes de este setup; el modo `--http` lo amplía a toda la red de
    oficina. Decisión explícita del despacho, no un descuido.
+4. **Los "conectores remotos por URL" de Claude Desktop no sirven para esto**
+   (lo probamos y falló con errores de conexión incluso probando desde el
+   propio servidor donde corre el servicio): esos conectores los conecta la
+   nube de Anthropic, no el ordenador del usuario, y una IP privada tipo
+   `10.80.152.3` no es alcanzable desde internet por definición — ningún
+   cambio de firewall local lo arregla. La solución real es
+   `dtr-mercantil-remoto` (proxy local, stdio), no un conector por URL. La
+   alternativa oficial de Anthropic para este caso es "MCP Tunnels", pero
+   está en research preview solo para cuentas Enterprise.
+5. En `server.py --http`, **no llames a tu variable `config`** si el módulo
+   `config.py` del proyecto ya ocupa ese nombre a nivel global — `config =
+   uvicorn.Config(...)` pisa el `import config` y rompe TODAS las tools que
+   lean `config.algo` (p. ej. `estado_sync` fallaba con `'Config' object has
+   no attribute 'DB_PATH'`). Pasó de verdad; usa `uvicorn_config` o similar.
 
 ## Pendiente
 

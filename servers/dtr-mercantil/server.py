@@ -505,8 +505,8 @@ if __name__ == "__main__":
         certfile = os.path.join(certs_dir, "dtr-mercantil.crt")
 
         app = mcp.streamable_http_app(host=host)
-        config = uvicorn.Config(app, host=host, port=port,
-                                ssl_keyfile=keyfile, ssl_certfile=certfile)
-        uvicorn.Server(config).run()
+        uvicorn_config = uvicorn.Config(app, host=host, port=port,
+                                        ssl_keyfile=keyfile, ssl_certfile=certfile)
+        uvicorn.Server(uvicorn_config).run()
     else:
         mcp.run(transport="stdio")
